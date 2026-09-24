@@ -1,6 +1,6 @@
 # upwork-scout — local Upwork job triage
 
-upwork-scout is a local script for a single Windows user. One manual run (`run.bat`) opens
+upwork-scout is a local script for a single Windows user. One manual run (`.\run.bat`) opens
 the installed Google Chrome with a separate profile (`browser-profile/`); the first time you
 log in to Upwork manually, and the session is kept afterwards. The script dynamically
 discovers **all** of your saved searches on `https://www.upwork.com/nx/find-work/` — via links
@@ -75,7 +75,7 @@ Chromium.
 Run:
 
 ```
-run.bat
+.\run.bat
 ```
 
 (or `.venv\Scripts\python -m upwork_scout`). A Chrome window opens with the profile folder
@@ -89,7 +89,7 @@ cookies never reach the code, logs or the report — the session lives only in
 To only log in without collecting anything:
 
 ```
-run.bat --login-only
+.\run.bat --login-only
 ```
 
 During the login phase the script only watches and never clicks anything: if Upwork shows a
@@ -100,7 +100,7 @@ that point are kept, and the report is still created.
 ## Regular run
 
 ```
-run.bat
+.\run.bat
 ```
 
 | Flag | What it does |
@@ -171,7 +171,7 @@ Phrases (in `filters.stop_categories.*.phrases`, `scoring.stack.*.phrases`,
 case-insensitively, on word boundaries; a trailing `*` means a match on the word's prefix
 (`"cold email*"` matches "cold emails").
 
-Tip: after editing the weights, run `run.bat --rescore` to see the effect without opening
+Tip: after editing the weights, run `.\run.bat --rescore` to see the effect without opening
 Upwork.
 
 ## Connecting third-party services and APIs
@@ -331,5 +331,5 @@ No server is used — everything runs locally on your machine.
 3. Run as usual:
 
    ```
-   run.bat
+   .\run.bat
    ```

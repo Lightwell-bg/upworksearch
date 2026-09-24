@@ -191,7 +191,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 13px; border-top: 1px
 <div class="empty">
   {% if show_mode == "new" %}
   <p><strong>Подходящих новых вакансий нет.</strong> Новых вакансий в этом запуске: {{ new_jobs }}; ни одна не набрала {{ min_score|round|int }} баллов или все отсеяны правилами.</p>
-  <p>Чтобы увидеть все найденные вакансии, запустите <code>run.bat --show-all</code> или укажите <code>report.show: all</code> в config.yaml.</p>
+  <p>Чтобы увидеть все найденные вакансии, запустите <code>.\run.bat --show-all</code> или укажите <code>report.show: all</code> в config.yaml.</p>
   {% else %}
   <p><strong>Подходящих вакансий нет.</strong> Ни одна из {{ unique_jobs }} найденных вакансий не набрала {{ min_score|round|int }} баллов или все отсеяны правилами.</p>
   {% endif %}

@@ -181,6 +181,7 @@ def open_browser(cfg: Config) -> Iterator[PlaywrightDriver]:
                 user_data_dir=str(profile),
                 channel=cfg.browser.channel,
                 headless=False,
+                chromium_sandbox=True,  # keep Chrome's sandbox (Playwright disables it by default)
                 no_viewport=True,
                 args=["--start-maximized"],
             )

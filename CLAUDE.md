@@ -54,12 +54,15 @@ a raw transcript, and never re-run the same check yourself "just to see."
 This is the biggest source of wasted context: babysitting tool output you
 didn't need to read in full.
 
-Codex is a REVIEWER, not a peer or co-executor. After you finish
-implementing a non-trivial change, always run `/codex:review` (or
-`/codex:adversarial-review` for anything security- or correctness-critical)
-before calling the task done. Resolve every finding Codex raises, or state
-explicitly why you are not — never silently skip a review finding. Never
-delegate primary implementation work to Codex.
+Codex is a REVIEWER, not a peer or co-executor, and it runs exactly ONCE
+per task: a single final review after the whole implementation is done and
+your tests pass — not after each subtask, and not again after you fix its
+findings. Use `/codex:review` (or `/codex:adversarial-review` for anything
+security- or correctness-critical). Resolve every finding it raises, or
+state explicitly why you are not. Verify your fixes with tests (run by
+`ojc-boilerplate-executor`), never by re-running Codex. A second Codex run
+happens only if the user explicitly asks for it. Never delegate primary
+implementation work to Codex.
 
 Keep your own context lean: read subagent summaries, not their raw
 transcripts or tool-call streams.
