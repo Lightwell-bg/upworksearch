@@ -1,0 +1,226 @@
+{% macro job_entry(it) %}
+<article class="job {{ it.recommendation }}">
+  <div class="score">
+    <div><b>{{ it.final_score }}</b><small>/100</small></div>
+    <div class="bar" aria-hidden="true">
+      {% for key, label, maxp, got in it.bar %}<span style="flex: {{ maxp }} 0 0" title="{{ label }}: {{ got|round(1) }} из {{ maxp|round|int }}"><i class="c-{{ key }}" style="width: {{ (100 * got / maxp)|round(1) if maxp else 0 }}%"></i></span>{% endfor %}
+    </div>
+    <div class="rule-ai">правила {{ it.rule_score }}{% if it.ai_relevance is not none %}, Jev {{ it.ai_relevance }}{% endif %}</div>
+    <span class="rec {{ it.recommendation }}">{{ it.recommendation_ru }}</span>
+  </div>
+  <div>
+    <h3><a href="{{ it.url }}" rel="noopener noreferrer" target="_blank">{{ it.title }}</a>{% if it.is_new %}<span class="new">новая</span>{% endif %}</h3>
+    <dl class="facts">
+      <div><dt>Бюджет</dt><dd>{{ it.budget }}</dd></div>
+      <div><dt>Отклики</dt><dd>{{ it.proposals }}</dd></div>
+      <div><dt>Опубликовано</dt><dd>{{ it.posted }}</dd></div>
+      <div><dt>Уровень и срок</dt><dd>{{ it.level_duration }}</dd></div>
+      <div><dt>Клиент</dt><dd>{{ it.client }}</dd></div>
+    </dl>
+    <div class="why">
+      <div><h4>Почему подходит</h4><ul>{% for r in it.reasons %}<li>{{ r }}</li>{% endfor %}</ul></div>
+      <div class="risks"><h4>Риски</h4>{% if it.risks %}<ul>{% for r in it.risks %}<li>{{ r }}</li>{% endfor %}</ul>{% else %}<p style="margin:0">Явных рисков не найдено.</p>{% endif %}</div>
+    </div>
+    {% if it.ai_explanation %}
+    <p class="ai">{{ it.ai_explanation }}</p>
+    {% elif it.ai_message %}
+    <p class="ai off">{{ it.ai_message }}</p>
+    {% endif %}
+    <div class="tags">Поиски: {% for name in it.searches %}<span>{{ name }}</span>{% endfor %}</div>
+    {% if it.skills %}<div class="tags skills">Навыки: {% for s in it.skills %}<span>{{ s }}</span>{% endfor %}</div>{% endif %}
+    {% if it.description %}
+    <details class="desc"><summary>Описание</summary><p>{{ it.description }}</p></details>
+    {% endif %}
+  </div>
+</article>
+{% endmacro -%}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Отбор вакансий Upwork — {{ generated_at_str }}</title>
+<style>
+:root {
+  --paper: #F3F5F7; --surface: #FFFFFF; --ink: #1C2530; --muted: #5B6773; --line: #D5DBE1;
+  --apply: #1F7A5A; --review: #B7791F; --skip: #8A94A0; --link: #2255A4;
+  --bad: #A8322D; --bar-empty: #E4E8EC;
+  --num: "Bahnschrift", "DIN Alternate", "Arial Narrow", sans-serif;
+  --text: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #12171D; --surface: #1A2129; --ink: #E4E9EE; --muted: #9AA6B2; --line: #2C3641;
+    --apply: #4CC79A; --review: #E3B04B; --skip: #7D8894; --link: #8DB4FF; --bad: #F08A84; --bar-empty: #26303A;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 15px/1.55 var(--text); }
+.page { max-width: 920px; margin: 0 auto; padding: 32px 20px 64px; }
+a { color: var(--link); }
+a:focus-visible, summary:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+h1 { font: 600 30px/1.15 var(--num); font-stretch: 87.5%; margin: 0 0 4px; letter-spacing: -0.01em; }
+h2 { font: 600 20px/1.2 var(--num); margin: 40px 0 12px; }
+.sub { color: var(--muted); margin: 0; }
+
+.banner { border-left: 4px solid var(--bad); background: var(--surface); padding: 12px 16px; margin: 20px 0 0; }
+.banner strong { color: var(--bad); }
+.warn { border-left-color: var(--review); }
+.warn strong { color: var(--review); }
+
+.tally { display: flex; flex-wrap: wrap; gap: 8px 40px; margin: 24px 0 0; padding: 16px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.tally div { min-width: 92px; }
+.tally b { display: block; font: 600 34px/1 var(--num); font-variant-numeric: tabular-nums; }
+.tally span { color: var(--muted); font-size: 13px; }
+.tally .errors b { color: var(--bad); }
+.tally .zero b { color: var(--muted); }
+.meta-line { color: var(--muted); font-size: 13px; margin: 10px 0 0; }
+
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 7px 10px 7px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 500; }
+td.num { font-variant-numeric: tabular-nums; }
+.st-ok { color: var(--apply); } .st-error, .st-aborted { color: var(--bad); } .st-skipped { color: var(--muted); }
+
+.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--muted); font-size: 13px; margin: 0 0 16px; }
+.legend i { display: inline-block; width: 10px; height: 10px; margin-right: 5px; vertical-align: -1px; }
+
+.job { display: grid; grid-template-columns: 112px 1fr; gap: 0 22px; background: var(--surface); border-left: 4px solid var(--skip); padding: 18px 20px 18px 16px; margin: 0 0 14px; }
+.job.apply { border-left-color: var(--apply); }
+.job.review { border-left-color: var(--review); }
+.score b { font: 600 46px/1 var(--num); font-variant-numeric: tabular-nums; }
+.score small { color: var(--muted); font: 500 15px var(--num); }
+.bar { display: flex; height: 8px; margin: 10px 0 6px; gap: 2px; }
+.bar span { background: var(--bar-empty); position: relative; }
+.bar span i { position: absolute; inset: 0 auto 0 0; }
+.c-stack { background: #3D6FB6; } .c-freshness { background: #3E9C8F; } .c-competition { background: #8B6BB8; }
+.c-client { background: #C27C3E; } .c-budget { background: #5A8F3C; } .c-clarity { background: #B55A7B; }
+.rule-ai { color: var(--muted); font-size: 12px; line-height: 1.35; }
+.rec { display: inline-block; margin-top: 8px; font: 600 13px var(--num); padding: 2px 8px; border: 1.5px solid currentColor; }
+.rec.apply { color: var(--apply); } .rec.review { color: var(--review); } .rec.skip { color: var(--skip); }
+
+.job h3 { margin: 0 0 6px; font-size: 17px; line-height: 1.35; font-weight: 600; }
+.job h3 a { text-decoration: none; } .job h3 a:hover { text-decoration: underline; }
+.new { font: 600 12px var(--num); color: var(--apply); margin-left: 6px; vertical-align: 2px; }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 2px 18px; margin: 0 0 10px; font-size: 14px; }
+.facts dt { color: var(--muted); font-size: 12px; }
+.facts dd { margin: 0 0 4px; }
+.why { display: grid; grid-template-columns: 1fr 1fr; gap: 0 22px; font-size: 14px; }
+.why h4 { margin: 6px 0 2px; font-size: 13px; color: var(--muted); font-weight: 600; }
+.why ul { margin: 0; padding-left: 18px; }
+.why li { margin: 1px 0; }
+.risks li { color: var(--ink); }
+.risks li::marker { color: var(--bad); }
+.ai { font-size: 14px; margin: 10px 0 0; padding: 8px 12px; border: 1px dashed var(--line); }
+.ai.off { color: var(--muted); }
+.tags { margin: 10px 0 0; font-size: 13px; color: var(--muted); }
+.tags span { display: inline-block; border: 1px solid var(--line); padding: 0 7px; margin: 2px 4px 0 0; color: var(--ink); }
+.skills { margin-top: 4px; }
+details.desc { margin: 10px 0 0; font-size: 14px; }
+details.desc summary { cursor: pointer; color: var(--muted); }
+details.desc p { white-space: pre-line; max-width: 72ch; }
+
+.empty { background: var(--surface); padding: 22px 20px; border-left: 4px solid var(--skip); }
+details.group { margin: 28px 0 0; }
+details.group > summary { cursor: pointer; font: 600 18px var(--num); padding: 8px 0; }
+details.group > summary span { color: var(--muted); font-weight: 400; }
+.compact { background: var(--surface); padding: 10px 14px; margin: 0 0 8px; border-left: 4px solid var(--line); font-size: 14px; }
+.compact .t { font-weight: 600; }
+.compact .r { color: var(--muted); }
+footer { margin-top: 48px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--line); padding-top: 12px; }
+
+@media (max-width: 640px) {
+  .job { grid-template-columns: 1fr; }
+  .score { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .bar { flex: 1 1 100%; }
+  .why { grid-template-columns: 1fr; }
+  .tally { gap: 8px 24px; }
+  table { font-size: 13px; }
+  td:last-child { font-size: 12px; color: var(--muted); }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<main class="page">
+<header>
+  <h1>Отбор вакансий Upwork</h1>
+  <p class="sub">Запуск №{{ run_id }}, {{ generated_at_str }}. Показаны {{ "только новые вакансии (которых не было в базе до этого запуска)" if show_mode == "new" else "все вакансии, найденные в этом запуске" }}.</p>
+</header>
+
+{% if abort_reason %}
+<div class="banner"><strong>Проход остановлен.</strong> {{ abort_reason }} Уже собранные данные сохранены и учтены в отчёте.</div>
+{% endif %}
+{% for w in warnings %}
+<div class="banner warn"><strong>Внимание.</strong> {{ w }}</div>
+{% endfor %}
+
+<section class="tally" aria-label="Итоги запуска">
+  <div><b>{{ searches_ok }}<small style="font-size:18px;color:var(--muted)">/{{ searches_found }}</small></b><span>поисков обработано</span></div>
+  <div><b>{{ unique_jobs }}</b><span>уникальных вакансий</span></div>
+  <div><b>{{ new_jobs }}</b><span>новых</span></div>
+  <div><b>{{ passed_in_scope }}</b><span>прошли фильтр{{ " (из новых)" if show_mode == "new" else "" }}</span></div>
+  <div class="{{ 'errors' if search_errors else 'zero' }}"><b>{{ search_errors }}</b><span>ошибок поисков</span></div>
+</section>
+<p class="meta-line">{{ ai_summary }}{% if details_summary %} {{ details_summary }}{% endif %} Порог прохождения: {{ min_score|round|int }}/100.</p>
+
+{% if searches %}
+<h2>Сохранённые поиски</h2>
+<table>
+  <thead><tr><th>Поиск</th><th>Статус</th><th>Карточек</th><th>Комментарий</th></tr></thead>
+  <tbody>
+  {% for s in searches %}
+  <tr>
+    <td><a href="{{ s.url }}">{{ s.name }}</a></td>
+    <td class="st-{{ s.status }}">{{ status_ru.get(s.status, s.status) }}</td>
+    <td class="num">{{ s.cards_found }}</td>
+    <td>{{ s.error or "" }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<h2>Подходящие вакансии{% if main %} ({{ main|length }}){% endif %}</h2>
+{% if main %}
+<div class="legend" aria-label="Состав оценки">
+  {% for key, label, maxp in components %}<span><i class="c-{{ key }}"></i>{{ label }} (до {{ maxp|round|int }})</span>{% endfor %}
+</div>
+{% for it in main %}{{ job_entry(it) }}{% endfor %}
+{% else %}
+<div class="empty">
+  {% if show_mode == "new" %}
+  <p><strong>Подходящих новых вакансий нет.</strong> Новых вакансий в этом запуске: {{ new_jobs }}; ни одна не набрала {{ min_score|round|int }} баллов или все отсеяны правилами.</p>
+  <p>Чтобы увидеть все найденные вакансии, запустите <code>run.bat --show-all</code> или укажите <code>report.show: all</code> в config.yaml.</p>
+  {% else %}
+  <p><strong>Подходящих вакансий нет.</strong> Ни одна из {{ unique_jobs }} найденных вакансий не набрала {{ min_score|round|int }} баллов или все отсеяны правилами.</p>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if below %}
+<details class="group">
+  <summary>Ниже порога <span>({{ below|length }})</span></summary>
+  {% for it in below %}{{ job_entry(it) }}{% endfor %}
+</details>
+{% endif %}
+
+{% if excluded %}
+<details class="group">
+  <summary>Отсеяны жёсткими правилами <span>({{ excluded|length }})</span></summary>
+  {% for it in excluded %}
+  <div class="compact">
+    <a class="t" href="{{ it.url }}" rel="noopener noreferrer" target="_blank">{{ it.title }}</a>
+    <div class="r">{{ it.exclusion_reasons|join("; ") }}. {{ it.budget }}.</div>
+  </div>
+  {% endfor %}
+</details>
+{% endif %}
+
+<footer>
+  Сформировано upwork-scout {{ version }}. Данные взяты только со страниц Upwork, открытых для чтения; отклики и сообщения не отправлялись.
+  «Не указано» означает, что поле не показано на странице, а не плохое значение.
+</footer>
+</main>
+</body>
+</html>

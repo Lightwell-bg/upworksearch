@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><title>AI Agent - Find Work | Upwork</title></head>
+<body>
+<main>
+<section data-test="JobsList">
+
+<!-- Same job as legacy card 1 (different URL shape) -> must merge by ID -->
+<article class="job-tile cursor-pointer px-md-4 air3-card air3-card-list px-4x" data-test="JobTile" data-ev-job-uid="1840000000000000001" data-ev-sublocation="search_results">
+  <div class="job-tile-header">
+    <small data-test="job-pubilshed-date" class="text-light"><span>Posted</span> <span>3 hours ago</span></small>
+    <h2 class="h5 mb-0 mr-2 job-tile-title">
+      <a data-test="job-tile-title-link UpLink" href="/nx/find-work/9860538/details/~01f4a3b2c1d0e9f8a7?pageTitle=Job%20Details">Telegram bot with Python (aiogram) and Google Sheets</a>
+    </h2>
+  </div>
+  <div data-test="JobTileDetails">
+    <ul class="job-tile-info-list" data-test="JobInfo">
+      <li data-test="job-type-label"><strong>Hourly: $30.00 - $60.00</strong></li>
+      <li data-test="experience-level"><strong>Intermediate</strong></li>
+      <li data-test="duration-label"><strong>Est. time:</strong> <strong>1 to 3 months, Less than 30 hrs/week</strong></li>
+    </ul>
+    <div data-test="UpCLineClamp JobDescription"><div class="air3-line-clamp"><p class="mb-0 text-body-sm">We need a Telegram bot written in Python (aiogram 3) that reads orders from Google Sheets via the Sheets API and sends notifications to managers. Requirements: webhook mode, FastAPI admin endpoint, deploy to our VPS. Deliverables: source code, README, deployment script. Full text visible on the job page with extra details about the admin panel.</p></div></div>
+    <div data-test="TokenClamp JobAttrs">
+      <button data-test="token" class="air3-token"><span>Python</span></button>
+      <button data-test="token" class="air3-token"><span>aiogram</span></button>
+    </div>
+  </div>
+  <ul class="job-tile-info-list" data-test="JobInfoClient">
+    <li data-test="payment-verified"><div class="air3-icon"><svg></svg></div><strong>Payment verified</strong></li>
+    <li data-test="total-feedback"><div class="air3-rating" data-test="rating"><span class="sr-only">Rating is 4.93 out of 5.</span></div></li>
+    <li data-test="total-spent"><strong class="rr-mask">$10K+</strong> spent</li>
+    <li data-test="location"><div class="air3-icon"><svg></svg></div><span class="sr-only">Location</span> <span class="rr-mask">United States</span></li>
+  </ul>
+  <li data-test="proposals-tier"><strong>Proposals:</strong> <strong>5 to 10</strong></li>
+</article>
+
+<!-- New job, "~02" ciphertext, fixed price, XSS attempt in title and description -->
+<article data-test="JobTile" data-ev-job-uid="1840000000000000002">
+  <small data-test="job-pubilshed-date"><span>Posted</span> <span>yesterday</span></small>
+  <h2 class="job-tile-title">
+    <a data-test="job-tile-title-link UpLink" href="/jobs/AI-Agent_~021840000000000000002/">AI agent &lt;script&gt;alert(1)&lt;/script&gt; for support "tickets"</a>
+  </h2>
+  <ul data-test="JobInfo">
+    <li data-test="is-fixed-price"><strong>Fixed price</strong></li>
+    <li data-test="experience-level"><strong>Expert</strong></li>
+    <li data-test="budget"><strong>Est. budget:</strong> <strong>$800.00</strong></li>
+  </ul>
+  <div data-test="UpCLineClamp JobDescription"><p>Build an LLM-based AI agent (OpenAI + LangChain) that triages support tickets. <img src=x onerror=alert(2)> Acceptance criteria listed in the attached spec.</p></div>
+  <div data-test="TokenClamp JobAttrs">
+    <button data-test="token"><span>LangChain</span></button>
+    <button data-test="token"><span>OpenAI API</span></button>
+  </div>
+  <ul data-test="JobInfoClient">
+    <li data-test="payment-verified"><strong>Payment verified</strong></li>
+    <li data-test="total-feedback"><div class="air3-rating"><span class="sr-only">Rating is 0 out of 5.</span></div></li>
+    <li data-test="total-spent"><strong>$2.5K</strong> spent</li>
+    <li data-test="location"><span class="sr-only">Location</span><span>Canada</span></li>
+  </ul>
+  <li data-test="proposals-tier"><strong>Proposals:</strong> <strong>50+</strong></li>
+</article>
+
+<!-- Marketing job with a low fixed budget (hard-rule exclusion) -->
+<article data-test="JobTile">
+  <small data-test="job-pubilshed-date"><span>Posted</span> <span>5 days ago</span></small>
+  <h2><a href="/jobs/SEO-and-social-media-marketing_~01d1e2f3a4b5c6d7e8/">SEO and social media marketing for my shop</a></h2>
+  <ul data-test="JobInfo">
+    <li data-test="is-fixed-price"><strong>Fixed price</strong></li>
+    <li data-test="experience-level"><strong>Entry level</strong></li>
+    <li data-test="budget"><strong>Est. budget:</strong> <strong>$50.00</strong></li>
+  </ul>
+  <div data-test="UpCLineClamp JobDescription"><p>Grow my Instagram and do SEO for my online shop, backlinks and promotion.</p></div>
+  <ul data-test="JobInfoClient">
+    <li data-test="payment-verified"><strong>Payment verified</strong></li>
+    <li data-test="location"><span class="sr-only">Location</span><span>India</span></li>
+  </ul>
+  <li data-test="proposals-tier"><strong>Proposals:</strong> <strong>15 to 20</strong></li>
+</article>
+
+</section>
+</main>
+</body>
+</html>

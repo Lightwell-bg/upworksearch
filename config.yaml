@@ -1,0 +1,203 @@
+# =====================================================================
+#  upwork-scout — настройки (некритичные). Секреты — только в .env.
+#  Пути указываются относительно папки проекта.
+# =====================================================================
+
+browser:
+  # Отдельный постоянный профиль Chrome только для этого скрипта.
+  # НЕ указывайте здесь ваш повседневный профиль (…\Google\Chrome\User Data) — скрипт откажется запускаться.
+  profile_dir: browser-profile
+  channel: chrome                      # установленный Google Chrome (не отдельный Chromium)
+  login_timeout_minutes: 10            # сколько ждать ручного входа в Upwork
+  navigation_timeout_seconds: 45
+  discovery_wait_seconds: 25           # ожидание появления вкладок сохранённых поисков
+  cards_wait_seconds: 20               # ожидание карточек на странице поиска
+  delay_between_pages_seconds: [3, 6]  # случайная пауза между переходами (спокойный темп, 1 вкладка)
+
+upwork:
+  find_work_url: https://www.upwork.com/nx/find-work/
+
+collection:
+  load_more_clicks: 0                  # сколько раз нажимать «Load More Jobs» в каждом поиске
+  load_more_wait_seconds: 15
+  details:
+    # off     — не открывать страницы вакансий (быстрее всего)
+    # missing — открывать, только если в карточке не хватает ключевых полей
+    # always  — открывать страницу каждой подходящей вакансии (полное описание)
+    mode: missing
+    only_new: true                     # открывать страницы только новых вакансий
+    max_per_run: 40                    # не больше N страниц вакансий за запуск
+    # Сколько раз пробовать открыть страницу вакансии, если она не загрузилась или оказалась
+    # не той страницей. Неудачные попытки повторяются в следующих запусках даже при only_new.
+    max_attempts: 3
+  # Сохранять очищенный HTML страниц поиска, где не найдено ни одной карточки, в папку debug/
+  # (только <main>, без скриптов, форм, скрытых полей и меню аккаунта; текст страницы может
+  # содержать ваше имя — просмотрите файл, прежде чем кому-то отправлять).
+  debug_dump_html: false
+
+storage:
+  db_path: data/upwork.sqlite3
+
+report:
+  output_dir: outputs
+  show: new                            # new — только вакансии, которых не было до запуска; all — все найденные
+  show_below_threshold: true           # свёрнутый блок «ниже порога»
+  show_excluded: true                  # свёрнутый блок «отсеяны жёсткими правилами»
+
+logging:
+  file: logs/upwork-scout.log
+  level: INFO
+
+# ---------------------------------------------------------------------
+#  Жёсткие правила (исключение до оценки)
+# ---------------------------------------------------------------------
+filters:
+  min_fixed_budget: 100                # fixed-price с бюджетом ниже — исключить
+  min_hourly_rate: 15                  # hourly, если верхняя граница ставки ниже — исключить
+  # Где совпадение стоп-фразы означает исключение. В остальных местах (обычно в описании)
+  # совпадение даёт штраф `penalty` категории — чтобы «marketing agency ищет Python-разработчика»
+  # не отсеивалось целиком.
+  exclude_in: [title, skills]
+  # true — если в заголовке или навыках есть приоритетный стек (scoring.stack), стоп-фраза
+  # не исключает вакансию, а только штрафует (пример: «Marketing automation with n8n»).
+  soften_if_stack_in_title_or_skills: true
+  # Доля штрафа категории, если стоп-фраза встретилась только в описании (слабый сигнал).
+  description_penalty_share: 0.5
+  # Фразы: без учёта регистра, по границам слов; `*` в конце — совпадение по началу слова.
+  stop_categories:
+    marketing:
+      label: маркетинг и продвижение
+      penalty: 25
+      phrases: [marketing, seo, smm, "social media manager", "social media marketing", "lead generation",
+                "cold calling", "cold email*", telemarketing, "facebook ads", "google ads", "meta ads",
+                "tiktok ads", backlink*, "link building", "content writing", copywrit*, promotion,
+                "influencer*", "email campaign*", "appointment setter"]
+    crypto_trading:
+      label: криптотрейдинг
+      penalty: 30
+      phrases: ["crypto trading", "trading bot*", "trading strateg*", forex, "binance bot", "sniper bot",
+                "mev bot", "arbitrage bot", "copy trading", memecoin*, "pump.fun", "trading signal*"]
+    data_entry:
+      label: data entry
+      penalty: 30
+      phrases: ["data entry", "copy paste", "copy-paste", "manual data", "typing job", "virtual assistant",
+                "data collection", "product listing*"]
+    design:
+      label: дизайн
+      penalty: 20
+      phrases: ["logo design*", "graphic design*", illustrat*, "brand identity", "ui/ux", "ux/ui",
+                "ux design*", "figma design*", "banner design", "video edit*", "motion design*",
+                "3d model*", "photoshop"]
+
+# ---------------------------------------------------------------------
+#  Оценка 0–100 (сумма компонентов минус штрафы; максимум компонентов = 100)
+# ---------------------------------------------------------------------
+scoring:
+  min_score: 40                        # итоговая оценка ≥ min_score → «прошла фильтр»
+  recommend_apply_from: 70             # ≥ — «откликнуться»
+  recommend_review_from: 45            # ≥ — «проверить вручную», ниже — «пропустить»
+  # Если поле не указано/не загрузилось, компонент получает эту долю своего максимума
+  # (нейтрально: отсутствие данных ≠ плохое значение).
+  unknown_share: 0.5
+
+  stack:                               # совпадение с приоритетным стеком, максимум 40
+    max_points: 40
+    title_multiplier: 1.5              # найдено в заголовке
+    skills_multiplier: 1.25            # найдено в навыках
+    description_multiplier: 1.0        # найдено только в описании
+    keywords:
+      python:     {label: Python, weight: 10, phrases: [python, django, flask, aiohttp, asyncio]}
+      fastapi:    {label: FastAPI, weight: 10, phrases: [fastapi, "fast api"]}
+      automation: {label: автоматизация, weight: 7, phrases: [automat*, scrap*, "web scraping", zapier, "make.com", integromat, rpa, playwright, selenium, workflow*]}
+      api:        {label: API-интеграции, weight: 8, phrases: [api, apis, "rest api", "api integration*", webhook*, integration*, "third-party api*", graphql]}
+      ai:         {label: AI/LLM/агенты, weight: 9, phrases: ["ai agent*", "ai automation", llm*, openai, chatgpt, "gpt*", claude, anthropic, langchain, langgraph, rag, "generative ai", "gen ai", crewai, autogen, mcp, "ai chatbot*", "ai assistant*"]}
+      telegram:   {label: Telegram-боты, weight: 8, phrases: [telegram, aiogram, telethon, "python-telegram-bot"]}
+      n8n:        {label: n8n, weight: 9, phrases: [n8n]}
+      php:        {label: PHP, weight: 5, phrases: [php]}
+      laravel:    {label: Laravel, weight: 6, phrases: [laravel]}
+      wordpress:  {label: WordPress, weight: 5, phrases: [wordpress, woocommerce, "wp plugin*", "wordpress plugin*"]}
+
+  freshness:                           # свежесть публикации, максимум 10
+    max_points: 10
+    tiers: [[1, 1.0], [6, 0.8], [24, 0.5], [72, 0.2]]    # [возраст ≤ N часов, доля максимума]; старше — 0
+
+  competition:                         # количество откликов, максимум 10
+    max_points: 10
+    tiers: [[4, 1.0], [10, 0.7], [15, 0.3], [20, 0.1]]   # [верхняя граница откликов ≤ N, доля]; больше — 0
+
+  client:                              # клиент, максимум 20
+    payment_verified_points: 6
+    spend_points: 7
+    min_spend: 1000                    # расходы клиента от $1,000
+    rating_points: 7
+    min_rating: 4.5
+
+  budget:                              # бюджет/ставка, максимум 10
+    max_points: 10
+    fixed_tiers: [[1000, 1.0], [500, 0.8], [250, 0.5], [100, 0.2]]   # [бюджет ≥ $N, доля]
+    hourly_tiers: [[50, 1.0], [35, 0.8], [25, 0.5], [15, 0.2]]       # [верхняя граница ставки ≥ $N, доля]
+
+  clarity:                             # конкретный ограниченный объём, максимум 10
+    max_points: 10
+    min_chars: 300                     # описание разумной длины: min_chars…max_chars
+    max_chars: 5000
+    length_points: 4
+    phrase_points: 2                   # за каждую фразу про объём/результат (до max_phrase_matches)
+    max_phrase_matches: 2
+    list_points: 2                     # в описании есть список из ≥ 3 пунктов
+    scope_phrases: [deliverable*, requirement*, milestone*, "acceptance criteria", "scope of work",
+                    specification*, "user stor*", endpoint*, "tech stack", "expected outcome",
+                    "the goal is", "must be able", "should be able", "step 1", "definition of done"]
+
+  penalties:
+    payment_unverified: 10             # оплата клиента явно не подтверждена
+    low_rating_below: 4.0              # рейтинг клиента ниже — штраф
+    low_rating_points: 10
+    short_description_chars: 150       # слишком короткое описание — расплывчатая задача
+    short_description_points: 15
+    vague_phrase_points: 5
+    vague_max_points: 15
+    vague_phrases: ["various tasks", "general help", "simple task", "small tasks", "help me with my project",
+                    "anything else", "and more", "ongoing tasks", "multiple tasks", "not sure"]
+    # «огромный объём при символическом бюджете»: fixed-price ≤ big_scope_max_budget и признаки большого проекта
+    big_scope_max_budget: 500
+    big_scope_points: 25
+    big_scope_phrases: ["full platform", marketplace, "like uber", "like airbnb", clone, "saas platform",
+                        "complete system", "from scratch", "end-to-end platform", "crm system", erp,
+                        "social network", "mobile app and web*", "entire website", "full stack app*"]
+    long_duration_markers: ["more than 6 months", "3 to 6 months"]
+
+# ---------------------------------------------------------------------
+#  AI-оценка через Jev (OpenRouter). Ключ и модель — в .env.
+#  Без ключа этот этап пропускается, отчёт строится по детерминированным правилам.
+# ---------------------------------------------------------------------
+ai:
+  enabled: true
+  max_jobs_per_run: 60                 # не больше N запросов к Jev за запуск
+  min_rule_score: 25                   # не тратить запросы на явно слабые вакансии
+  score_weight: 0.35                   # итог = (1 − w)·оценка правил + w·релевантность Jev; 0 — только для справки
+  timeout_seconds: 30
+  max_retries: 2                       # повторы при таймауте, 429 и 5xx
+  min_interval_seconds: 0.5            # пауза между запросами
+  max_consecutive_failures: 3          # после N ошибок подряд AI-этап отключается до конца запуска
+  description_max_chars: 4000
+  # false — AI никогда не возвращает в выдачу вакансии, исключённые жёсткими правилами.
+  # true  — вакансия, исключённая правилами, возвращается, если Jev уверенно советует откликнуться
+  #         (рекомендация «apply» с вероятностью ≥ 0.7 и релевантность ≥ 75).
+  override_exclusions: false
+  # Направление, относительно которого Jev оценивает вакансию (не данные профиля Upwork).
+  freelancer_focus: "Python, FastAPI, automation, API integrations, AI/LLM agents, Telegram bots, n8n, PHP, Laravel, WordPress"
+  risk_threshold: 0.6                  # вероятность ≥ порога → риск попадает в отчёт
+  risk_questions:
+    vague_scope:
+      label: расплывчатая задача без понятного результата
+      instructions: "Is the job scope vague, without a clear deliverable or measurable result?"
+    budget_mismatch:
+      label: объём работ несоразмерен бюджету
+      instructions: "Is the amount of work clearly too large for the stated budget or hourly rate?"
+    off_stack:
+      label: не разработка (маркетинг, дизайн, data entry, трейдинг)
+      instructions: "Is this job mainly about marketing, design, data entry, sales or trading rather than software development?"
+    red_flags:
+      label: подозрительные условия (бесплатное тестовое, связь или оплата вне Upwork)
+      instructions: "Does the job contain red flags such as unpaid test work, requests to communicate or pay outside Upwork, or a suspicious offer?"
