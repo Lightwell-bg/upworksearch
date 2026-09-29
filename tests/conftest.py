@@ -35,11 +35,12 @@ def now() -> datetime:
 
 @pytest.fixture
 def cfg(tmp_path: Path) -> Config:
-    """The real config.yaml, with storage/report/logging redirected into tmp_path."""
+    """The real config.yaml, with storage/report/logging/inbox redirected into tmp_path."""
     config = load_config()
     config.storage.db_path = str(tmp_path / "data" / "upwork.sqlite3")
     config.report.output_dir = str(tmp_path / "outputs")
     config.logging.file = str(tmp_path / "logs" / "upwork-scout.log")
+    config.inbox.folder = str(tmp_path / "inbox")
     return config
 
 
@@ -150,3 +151,32 @@ class FakeDriver:
 def fake_clock():
     """A monotonic clock that advances by 1 on every call and never blocks a wait loop."""
     return iter(range(0, 10**6)).__next__
+
+
+def build_mhtml(path: Path, url: str, html: str, charset: str | None = None) -> None:
+    """Write a minimal Chrome-like "Webpage, Single File" (.mhtml): a multipart/related
+    message with Snapshot-Content-Location and a single quoted-printable text/html part whose
+    own Content-Location matches, exactly like upwork_scout.inbox.read_saved_page expects.
+    Like Chrome, the part carries no charset parameter unless ``charset`` is given."""
+    import quopri
+
+    boundary = "----MultipartBoundary--fake0000000000000000000----"
+    qp = quopri.encodestring(html.encode("utf-8")).decode("ascii")
+    message = (
+        "From: <Saved by Blink>\r\n"
+        f"Snapshot-Content-Location: {url}\r\n"
+        "Subject: Saved page\r\n"
+        "MIME-Version: 1.0\r\n"
+        "Content-Type: multipart/related;\r\n"
+        '\ttype="text/html";\r\n'
+        f'\tboundary="{boundary}"\r\n'
+        "\r\n"
+        f"--{boundary}\r\n"
+        f"Content-Type: text/html{f'; charset={charset}' if charset else ''}\r\n"
+        "Content-Transfer-Encoding: quoted-printable\r\n"
+        f"Content-Location: {url}\r\n"
+        "\r\n"
+        f"{qp}\r\n"
+        f"--{boundary}--\r\n"
+    )
+    path.write_bytes(message.encode("utf-8"))

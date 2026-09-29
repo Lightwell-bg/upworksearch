@@ -66,10 +66,40 @@ class DetailsCfg(_Section):
 
 
 class CollectionCfg(_Section):
+    source: Literal["browser", "inbox"] = "browser"
     load_more_clicks: int = Field(0, ge=0, le=50)
     load_more_wait_seconds: float = Field(15, gt=0)
     details: DetailsCfg = DetailsCfg()
     debug_dump_html: bool = False
+
+
+class InboxCfg(_Section):
+    folder: str = "inbox"
+    move_processed: bool = True
+
+
+class TranslateCfg(_Section):
+    enabled: bool = True
+    model: str = "google/gemini-2.5-flash-lite"
+    api_url: str = "https://openrouter.ai/api/v1/chat/completions"
+    scope: Literal["passed", "shown"] = "passed"
+    max_jobs_per_run: int = Field(60, ge=0)
+    description_max_chars: int = Field(3000, ge=200)
+    timeout_seconds: float = Field(45, gt=0)
+    max_retries: int = Field(2, ge=0, le=10)
+    max_consecutive_failures: int = Field(3, ge=1)
+
+    @field_validator("api_url")
+    @classmethod
+    def _https(cls, v: str) -> str:
+        parsed = urlparse(v)
+        try:
+            parsed.port  # raises ValueError for a malformed port such as ":abc"
+        except ValueError:
+            raise ValueError("некорректный порт в адресе") from None
+        if parsed.scheme != "https" or not parsed.hostname:
+            raise ValueError("ожидается полный адрес https://host/путь")
+        return v
 
 
 class StorageCfg(_Section):
@@ -81,6 +111,16 @@ class ReportCfg(_Section):
     show: Literal["new", "all"] = "new"
     show_below_threshold: bool = True
     show_excluded: bool = True
+
+
+class DedupCfg(_Section):
+    """Reposted-job detection (see dedup.py)."""
+
+    enabled: bool = True
+    window_days: int = Field(30, ge=1)
+    min_similarity: float = Field(0.8, gt=0, le=1)
+    min_title_similarity: float = Field(0.5, ge=0, le=1)
+    min_words: int = Field(15, ge=3)
 
 
 class LoggingCfg(_Section):
@@ -203,10 +243,13 @@ class Config(_Section):
     collection: CollectionCfg = CollectionCfg()
     storage: StorageCfg = StorageCfg()
     report: ReportCfg = ReportCfg()
+    dedup: DedupCfg = DedupCfg()
     logging: LoggingCfg = LoggingCfg()
     filters: FiltersCfg = FiltersCfg()
     scoring: ScoringCfg = ScoringCfg()
     ai: AICfg = AICfg()
+    inbox: InboxCfg = InboxCfg()
+    translate: TranslateCfg = TranslateCfg()
 
     # Directory that relative paths in the config are resolved against (not read from YAML).
     base_dir: Path = Field(default=PROJECT_ROOT, exclude=True)

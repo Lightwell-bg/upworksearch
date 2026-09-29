@@ -21,3 +21,5 @@ dist/
 *.egg-info/
 .coverage
 htmlcov/
+inbox/
+CLAUDE.md

@@ -119,6 +119,15 @@ CREATE TABLE IF NOT EXISTS evaluations (
     evaluated_at        TEXT NOT NULL,
     PRIMARY KEY (run_id, job_id)
 );
+CREATE TABLE IF NOT EXISTS translations (
+    job_id      TEXT NOT NULL,
+    cache_key   TEXT NOT NULL,                     -- translate.cache_key: model + prompt + source text
+    title_ru    TEXT NOT NULL,
+    summary_ru  TEXT NOT NULL,
+    model       TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    PRIMARY KEY (job_id, cache_key)
+);
 """
 
 # Columns added after schema v1. CREATE TABLE IF NOT EXISTS never alters an existing table,
@@ -135,6 +144,7 @@ _INDEXES = """
 DROP INDEX IF EXISTS idx_eval_job;
 CREATE INDEX IF NOT EXISTS idx_sightings_run ON sightings(run_id);
 CREATE INDEX IF NOT EXISTS idx_eval_ai_key ON evaluations(job_id, ai_cache_key);
+CREATE INDEX IF NOT EXISTS idx_jobs_first_seen ON jobs(first_seen_at);
 """
 
 _JOB_COLUMNS = [f.name for f in fields(Job)]
@@ -348,6 +358,14 @@ class Storage:
         ).fetchall()
         return [r["job_id"] for r in rows]
 
+    def dedup_pool(self, since: str) -> list[sqlite3.Row]:
+        """Texts of the jobs first seen at or after ``since`` (ISO) — the repost search pool."""
+        return self.conn.execute(
+            """SELECT job_id, title, description, client_country, first_seen_run_id, first_seen_at
+               FROM jobs WHERE first_seen_at >= ?""",
+            (since,),
+        ).fetchall()
+
     def count_jobs(self) -> int:
         return int(self.conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0])
 
@@ -369,6 +387,21 @@ class Storage:
                     ev.ai_recommendation, ev.ai_recommendation_p, json.dumps(ev.ai_risks, ensure_ascii=False),
                     ev.ai_explanation, ev.ai_model, ev.ai_cache_key, _iso(now),
                 ),
+            )
+
+    def get_translation(self, job_id: str, key: str) -> tuple[str, str] | None:
+        row = self.conn.execute(
+            "SELECT title_ru, summary_ru FROM translations WHERE job_id=? AND cache_key=?", (job_id, key)
+        ).fetchone()
+        return (row["title_ru"], row["summary_ru"]) if row else None
+
+    def save_translation(self, job_id: str, key: str, title_ru: str, summary_ru: str, model: str,
+                         now: datetime) -> None:
+        with self.conn:
+            self.conn.execute(
+                "INSERT OR REPLACE INTO translations (job_id, cache_key, title_ru, summary_ru, model, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (job_id, key, title_ru, summary_ru, model, _iso(now)),
             )
 
     def cached_ai(self, job_id: str, ai_cache_key: str) -> sqlite3.Row | None:

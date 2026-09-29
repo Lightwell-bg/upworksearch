@@ -1,5 +1,5 @@
 {% macro job_entry(it) %}
-<article class="job {{ it.recommendation }}">
+<article class="job {{ it.recommendation }}" data-rec="{{ it.recommendation }}" data-s="{% for n in it.searches %}{{ search_index.get(n, '') }} {% endfor %}"{% for k, v in it.sort.items() %}{% if v is not none %} data-{{ k }}="{{ v }}"{% endif %}{% endfor %}>
   <div class="score">
     <div><b>{{ it.final_score }}</b><small>/100</small></div>
     <div class="bar" aria-hidden="true">
@@ -10,6 +10,9 @@
   </div>
   <div>
     <h3><a href="{{ it.url }}" rel="noopener noreferrer" target="_blank">{{ it.title }}</a>{% if it.is_new %}<span class="new">новая</span>{% endif %}</h3>
+    {% if it.title_original %}<p class="orig" lang="en">{{ it.title_original }}</p>{% endif %}
+    {% if it.repost_of %}<p class="orig">Повтор ранее найденной вакансии: <a href="{{ it.repost_of.url }}" rel="noopener noreferrer" target="_blank">{{ it.repost_of.title }}</a></p>{% endif %}
+    {% if it.summary_ru %}<p class="summary">{{ it.summary_ru }}</p>{% endif %}
     <dl class="facts">
       <div><dt>Бюджет</dt><dd>{{ it.budget }}</dd></div>
       <div><dt>Отклики</dt><dd>{{ it.proposals }}</dd></div>
@@ -29,7 +32,7 @@
     <div class="tags">Поиски: {% for name in it.searches %}<span>{{ name }}</span>{% endfor %}</div>
     {% if it.skills %}<div class="tags skills">Навыки: {% for s in it.skills %}<span>{{ s }}</span>{% endfor %}</div>{% endif %}
     {% if it.description %}
-    <details class="desc"><summary>Описание</summary><p>{{ it.description }}</p></details>
+    <details class="desc"><summary>{{ "Описание (оригинал)" if it.summary_ru else "Описание" }}</summary><p lang="en">{{ it.description }}</p></details>
     {% endif %}
   </div>
 </article>
@@ -101,6 +104,8 @@ td.num { font-variant-numeric: tabular-nums; }
 
 .job h3 { margin: 0 0 6px; font-size: 17px; line-height: 1.35; font-weight: 600; }
 .job h3 a { text-decoration: none; } .job h3 a:hover { text-decoration: underline; }
+.orig { margin: -2px 0 6px; color: var(--muted); font-size: 13px; }
+.summary { margin: 0 0 10px; max-width: 72ch; }
 .new { font: 600 12px var(--num); color: var(--apply); margin-left: 6px; vertical-align: 2px; }
 .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 2px 18px; margin: 0 0 10px; font-size: 14px; }
 .facts dt { color: var(--muted); font-size: 12px; }
@@ -127,6 +132,12 @@ details.group > summary span { color: var(--muted); font-weight: 400; }
 .compact { background: var(--surface); padding: 10px 14px; margin: 0 0 8px; border-left: 4px solid var(--line); font-size: 14px; }
 .compact .t { font-weight: 600; }
 .compact .r { color: var(--muted); }
+.controls { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: end; background: var(--paper); padding: 10px 0; margin: 0 0 12px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.controls label { display: flex; flex-direction: column; color: var(--muted); gap: 2px; }
+.controls select, .controls button { font: 14px var(--text); color: var(--ink); background: var(--surface); border: 1px solid var(--line); padding: 4px 8px; }
+.controls button { cursor: pointer; }
+.controls .count { color: var(--muted); margin-left: auto; }
+.job[hidden] { display: none; }
 footer { margin-top: 48px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--line); padding-top: 12px; }
 
 @media (max-width: 640px) {
@@ -159,6 +170,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 13px; border-top: 1px
   <div><b>{{ searches_ok }}<small style="font-size:18px;color:var(--muted)">/{{ searches_found }}</small></b><span>поисков обработано</span></div>
   <div><b>{{ unique_jobs }}</b><span>уникальных вакансий</span></div>
   <div><b>{{ new_jobs }}</b><span>новых</span></div>
+  <div><b>{{ reposted_jobs }}</b><span>повторов</span></div>
   <div><b>{{ passed_in_scope }}</b><span>прошли фильтр{{ " (из новых)" if show_mode == "new" else "" }}</span></div>
   <div class="{{ 'errors' if search_errors else 'zero' }}"><b>{{ search_errors }}</b><span>ошибок поисков</span></div>
 </section>
@@ -182,11 +194,48 @@ footer { margin-top: 48px; color: var(--muted); font-size: 13px; border-top: 1px
 {% endif %}
 
 <h2>Подходящие вакансии{% if main %} ({{ main|length }}){% endif %}</h2>
+{% if main or below %}
+<form class="controls" id="controls" aria-label="Сортировка и фильтр" onsubmit="return false">
+  <label>Сортировка
+    <select id="sort-key">
+      <option value="score">итоговая оценка</option>
+      <option value="rule">оценка правил</option>
+      <option value="ai">релевантность Jev</option>
+      <option value="age">свежесть (новые сверху)</option>
+      <option value="fixed">бюджет fixed-price</option>
+      <option value="hourly">ставка hourly</option>
+      <option value="proposals">меньше откликов</option>
+      <option value="spend">расходы клиента</option>
+      <option value="rating">рейтинг клиента</option>
+    </select>
+  </label>
+  <label>Порядок
+    <button type="button" id="sort-dir" aria-label="Сменить направление сортировки">по убыванию</button>
+  </label>
+  {% if search_index|length > 1 %}
+  <label>Поиск
+    <select id="f-search">
+      <option value="">все поиски ({{ search_index|length }})</option>
+      {% for name, i in search_index.items() %}<option value="{{ i }}">{{ name }}</option>{% endfor %}
+    </select>
+  </label>
+  {% endif %}
+  <label>Рекомендация
+    <select id="f-rec">
+      <option value="">любая</option>
+      <option value="apply">откликнуться</option>
+      <option value="review">проверить вручную</option>
+      <option value="skip">пропустить</option>
+    </select>
+  </label>
+  <span class="count" id="shown-count" aria-live="polite"></span>
+</form>
+{% endif %}
 {% if main %}
 <div class="legend" aria-label="Состав оценки">
   {% for key, label, maxp in components %}<span><i class="c-{{ key }}"></i>{{ label }} (до {{ maxp|round|int }})</span>{% endfor %}
 </div>
-{% for it in main %}{{ job_entry(it) }}{% endfor %}
+<div class="jobs">{% for it in main %}{{ job_entry(it) }}{% endfor %}</div>
 {% else %}
 <div class="empty">
   {% if show_mode == "new" %}
@@ -201,7 +250,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 13px; border-top: 1px
 {% if below %}
 <details class="group">
   <summary>Ниже порога <span>({{ below|length }})</span></summary>
-  {% for it in below %}{{ job_entry(it) }}{% endfor %}
+  <div class="jobs">{% for it in below %}{{ job_entry(it) }}{% endfor %}</div>
 </details>
 {% endif %}
 
@@ -217,10 +266,75 @@ footer { margin-top: 48px; color: var(--muted); font-size: 13px; border-top: 1px
 </details>
 {% endif %}
 
+{% if reposts %}
+<details class="group">
+  <summary>Повторы уже найденных вакансий (перевыложены под новым ID) <span>({{ reposts|length }})</span></summary>
+  {% for it in reposts %}
+  <div class="compact">
+    <a class="t" href="{{ it.url }}" rel="noopener noreferrer" target="_blank">{{ it.title }}</a>
+    <div class="r">Оригинал: <a href="{{ it.repost_of.url }}" rel="noopener noreferrer" target="_blank">{{ it.repost_of.title }}</a>. {{ it.budget }}.</div>
+  </div>
+  {% endfor %}
+</details>
+{% endif %}
+
 <footer>
   Сформировано upwork-scout {{ version }}. Данные взяты только со страниц Upwork, открытых для чтения; отклики и сообщения не отправлялись.
   «Не указано» означает, что поле не показано на странице, а не плохое значение.
 </footer>
 </main>
+{% if main or below %}
+<script>
+(function () {
+  // Sorting/filtering happens in the browser only; the report file itself is not changed.
+  var ASC = {age: true, proposals: true}; // smaller is better for these keys
+  var STORE = "upwork-scout-report-view";
+  var keySel = document.getElementById("sort-key"), dirBtn = document.getElementById("sort-dir");
+  var fSearch = document.getElementById("f-search"), fRec = document.getElementById("f-rec");
+  var count = document.getElementById("shown-count");
+  var lists = Array.prototype.slice.call(document.querySelectorAll(".jobs"));
+  var reversed = false;
+  lists.forEach(function (list) {
+    Array.prototype.forEach.call(list.children, function (el, i) { el.dataset.pos = i; });
+  });
+  function num(el, key) { var v = el.dataset[key]; return v === undefined || v === "" ? null : parseFloat(v); }
+  function apply() {
+    var key = keySel.value, better = ASC[key] ? 1 : -1, dir = reversed ? -better : better;
+    dirBtn.textContent = reversed ? "худшие сверху" : "лучшие сверху";
+    var shown = 0, total = 0, s = fSearch ? fSearch.value : "", r = fRec.value;
+    lists.forEach(function (list) {
+      var items = Array.prototype.slice.call(list.children);
+      items.sort(function (a, b) {
+        var x = num(a, key), y = num(b, key);
+        if (x === null && y === null) return a.dataset.pos - b.dataset.pos;
+        if (x === null) return 1;
+        if (y === null) return -1;
+        return (x - y) * dir || a.dataset.pos - b.dataset.pos;
+      });
+      items.forEach(function (el) {
+        var ok = (!s || (" " + el.dataset.s).indexOf(" " + s + " ") >= 0) && (!r || el.dataset.rec === r);
+        el.hidden = !ok; total++; if (ok) shown++;
+        list.appendChild(el);
+      });
+    });
+    count.textContent = "показано " + shown + " из " + total;
+    try { localStorage.setItem(STORE, JSON.stringify({key: key, rev: reversed, rec: r})); } catch (e) {}
+  }
+  try {
+    var saved = JSON.parse(localStorage.getItem(STORE) || "null");
+    if (saved) {
+      if (keySel.querySelector('option[value="' + saved.key + '"]')) keySel.value = saved.key;
+      reversed = !!saved.rev;
+      if (fRec.querySelector('option[value="' + saved.rec + '"]')) fRec.value = saved.rec;
+    }
+  } catch (e) {}
+  keySel.addEventListener("change", apply);
+  fRec.addEventListener("change", apply);
+  if (fSearch) fSearch.addEventListener("change", apply);
+  dirBtn.addEventListener("click", function () { reversed = !reversed; apply(); });
+  apply();
+})();
+</script>
+{% endif %}
 </body>
 </html>

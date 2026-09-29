@@ -18,6 +18,10 @@ upwork:
   find_work_url: https://www.upwork.com/nx/find-work/
 
 collection:
+  # browser — открыть Upwork в Chrome и пройти сохранённые поиски (по умолчанию);
+  # inbox   — разобрать страницы, которые вы сами сохранили из Chrome в папку inbox/ (см. QUICK_START.md).
+  # Разово переключается флагом: .\run.bat --inbox
+  source: browser
   load_more_clicks: 0                  # сколько раз нажимать «Load More Jobs» в каждом поиске
   load_more_wait_seconds: 15
   details:
@@ -35,6 +39,10 @@ collection:
   # содержать ваше имя — просмотрите файл, прежде чем кому-то отправлять).
   debug_dump_html: false
 
+inbox:
+  folder: inbox                        # сюда сохраняйте страницы Upwork (Ctrl+S → «Веб-страница, один файл» .mhtml)
+  move_processed: true                 # обработанные файлы переносятся в inbox/processed/<дата-время>/
+
 storage:
   db_path: data/upwork.sqlite3
 
@@ -43,6 +51,16 @@ report:
   show: new                            # new — только вакансии, которых не было до запуска; all — все найденные
   show_below_threshold: true           # свёрнутый блок «ниже порога»
   show_excluded: true                  # свёрнутый блок «отсеяны жёсткими правилами»
+
+# Повторы: одна и та же вакансия, перевыложенная клиентом под новым ID. Такая вакансия
+# не считается новой (не попадает в отчёт при show: new, не отправляется в Jev и на перевод),
+# а при show: all помечается «повтор» со ссылкой на оригинал.
+dedup:
+  enabled: true
+  window_days: 30                      # искать оригинал среди вакансий за последние N дней
+  min_similarity: 0.8                  # доля совпадающих фрагментов описания (по 3 слова), 0–1
+  min_title_similarity: 0.5            # доля общих слов в заголовках, 0–1
+  min_words: 15                        # более короткие тексты считаются повтором только при полном совпадении
 
 logging:
   file: logs/upwork-scout.log
@@ -201,3 +219,19 @@ ai:
     red_flags:
       label: подозрительные условия (бесплатное тестовое, связь или оплата вне Upwork)
       instructions: "Does the job contain red flags such as unpaid test work, requests to communicate or pay outside Upwork, or a suspicious offer?"
+
+# ---------------------------------------------------------------------
+#  Перевод результатов на русский (OpenRouter, тот же OPENROUTER_API_KEY).
+#  Метки Upwork (дата, уровень, срок, отклики) переводятся всегда, без AI.
+#  Заголовок и краткая суть описания — моделью; результат кешируется в SQLite.
+# ---------------------------------------------------------------------
+translate:
+  enabled: true
+  model: google/gemini-2.5-flash-lite  # ≈ $0.00005 за вакансию
+  api_url: https://openrouter.ai/api/v1/chat/completions
+  scope: passed                        # passed — только прошедшие фильтр; shown — все показанные в отчёте
+  max_jobs_per_run: 60
+  description_max_chars: 3000
+  timeout_seconds: 45
+  max_retries: 2
+  max_consecutive_failures: 3

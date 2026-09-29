@@ -21,6 +21,10 @@ KEY_FIELDS: tuple[str, ...] = (
 )
 
 
+# U+FFFD: what a mis-decoded byte turns into (older inbox imports stored text like "Agent ��� Fix").
+_BROKEN = "�"
+
+
 def _present(value: Any) -> bool:
     return value is not None and value != "" and value != []
 
@@ -61,10 +65,14 @@ class Job:
         for f in fields(self):
             old, new = getattr(self, f.name), getattr(newer, f.name)
             if f.name == "skills":
+                old = [s for s in old if _BROKEN not in s] if new else old
                 seen = {s.casefold() for s in old}
                 data[f.name] = list(old) + [s for s in new if s.casefold() not in seen]
             elif f.name == "description":
-                data[f.name] = new if len(new or "") > len(old or "") else old
+                if old and new and (_BROKEN in old) != (_BROKEN in new):
+                    data[f.name] = old if _BROKEN in new else new  # clean text beats a mis-decoded one
+                else:
+                    data[f.name] = new if len(new or "") > len(old or "") else old
             else:
                 data[f.name] = new if _present(new) else old
         return Job(**data)

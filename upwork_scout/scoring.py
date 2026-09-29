@@ -12,6 +12,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from . import localize
 from .ai import AIOutcome
 from .config import AICfg, FiltersCfg, ScoringCfg
 from .fmt import LOCATION_RU, age, age_hours, money
@@ -169,9 +170,9 @@ class Scorer:
             reasons.append(f"{_pts(comp['competition'])} отклики: количество не указано (нейтрально)")
         else:
             comp["competition"] = s.competition.max_points * _share_le(proposals, s.competition.tiers)
-            reasons.append(f"{_pts(comp['competition'])} отклики: {job.proposals_text}")
+            reasons.append(f"{_pts(comp['competition'])} отклики: {localize.proposals(job.proposals_text)}")
             if proposals >= 20:
-                risks.append(f"высокая конкуренция: {job.proposals_text} откликов")
+                risks.append(f"высокая конкуренция: {localize.proposals(job.proposals_text)} откликов")
 
         # Client
         c = s.client
@@ -213,7 +214,7 @@ class Scorer:
         b = s.budget
         if job.job_type == "fixed" and job.budget is not None:
             comp["budget"] = b.max_points * _share_ge(job.budget, b.fixed_tiers)
-            reasons.append(f"{_pts(comp['budget'])} бюджет: fixed {money(job.budget)}")
+            reasons.append(f"{_pts(comp['budget'])} бюджет: фикс. цена {money(job.budget)}")
         elif job.job_type == "hourly" and (job.hourly_max is not None or job.hourly_min is not None):
             top = job.hourly_max if job.hourly_max is not None else job.hourly_min
             comp["budget"] = b.max_points * _share_ge(top or 0, b.hourly_tiers)

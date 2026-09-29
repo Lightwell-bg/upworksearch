@@ -6,8 +6,11 @@ from pathlib import Path
 
 import pytest
 
+import pydantic
+
 from upwork_scout.config import (
     ConfigError,
+    TranslateCfg,
     load_config,
     load_secrets,
     validate_profile_dir,
@@ -19,6 +22,39 @@ class TestLoadConfig:
         cfg = load_config()
         assert cfg.browser.channel == "chrome"
         assert cfg.upwork.find_work_url.startswith("https://www.upwork.com/nx/find-work")
+
+    def test_collection_source_defaults_to_browser(self):
+        from upwork_scout.config import CollectionCfg
+
+        assert CollectionCfg().source == "browser"
+
+    def test_translate_section_loads_from_config_yaml(self):
+        cfg = load_config()
+        assert cfg.translate.enabled is True
+        assert cfg.translate.model == "google/gemini-2.5-flash-lite"
+        assert cfg.translate.api_url == "https://openrouter.ai/api/v1/chat/completions"
+        assert cfg.translate.scope == "passed"
+
+    def test_inbox_section_loads_from_config_yaml(self):
+        cfg = load_config()
+        assert cfg.inbox.folder == "inbox"
+        assert cfg.inbox.move_processed is True
+
+
+class TestTranslateApiUrlValidation:
+    def test_malformed_port_rejected(self):
+        with pytest.raises(pydantic.ValidationError):
+            TranslateCfg(api_url="https://example.com:abc/x")
+
+    def test_missing_host_rejected(self):
+        with pytest.raises(pydantic.ValidationError):
+            TranslateCfg(api_url="https:///x")
+
+    def test_via_load_config(self, tmp_path: Path):
+        bad = tmp_path / "bad.yaml"
+        bad.write_text("translate:\n  api_url: https://example.com:abc/x\n", encoding="utf-8")
+        with pytest.raises(ConfigError):
+            load_config(bad)
 
     def test_invalid_yaml_raises_config_error(self, tmp_path: Path):
         bad = tmp_path / "bad.yaml"

@@ -9,6 +9,7 @@ from datetime import datetime
 
 from .ai import AIEvaluator, AIOutcome, AIResult, ai_cache_key
 from .config import Config
+from .dedup import find_reposts
 from .report import COMPONENTS, ReportContext, build_item, component_max
 from .scoring import Evaluation, Scorer, apply_ai
 from .storage import JobRecord, Storage
@@ -20,8 +21,14 @@ log = logging.getLogger(__name__)
 class EvaluatedJob:
     record: JobRecord
     evaluation: Evaluation
-    is_new: bool
+    is_new: bool  # the ID was not in the database before this run
     in_scope: bool
+    repost_of: str | None = None  # earlier job this one repeats under a new ID (dedup.py)
+
+    @property
+    def is_fresh(self) -> bool:
+        """New to the user: a new ID that is not a repost of a job seen before."""
+        return self.is_new and self.repost_of is None
 
 
 def _cached_outcome(row) -> AIOutcome:
@@ -40,16 +47,17 @@ def _cached_outcome(row) -> AIOutcome:
 
 def evaluate_run(store: Storage, cfg: Config, run_id: int, now: datetime,
                  evaluator: AIEvaluator | None) -> list[EvaluatedJob]:
-    """Score every job seen in ``run_id``; ask Jev about the in-scope candidates."""
+    """Score every job seen in ``run_id``; ask Jev about the in-scope candidates.
+    Reposts of earlier jobs are not fresh: with ``report.show: new`` they stay out of scope."""
     scorer = Scorer(cfg.filters, cfg.scoring)
+    records = [rec for rec in map(store.get_record, store.run_job_ids(run_id)) if rec is not None]
+    reposts = find_reposts(store, cfg.dedup, records)
     items: list[EvaluatedJob] = []
-    for job_id in store.run_job_ids(run_id):
-        rec = store.get_record(job_id)
-        if rec is None:
-            continue
-        is_new = rec.first_seen_run_id == run_id
-        items.append(EvaluatedJob(rec, scorer.evaluate(rec.job, now), is_new,
-                                  in_scope=cfg.report.show == "all" or is_new))
+    for rec in records:
+        it = EvaluatedJob(rec, scorer.evaluate(rec.job, now), rec.first_seen_run_id == run_id, in_scope=False,
+                          repost_of=reposts.get(rec.job.job_id))
+        it.in_scope = cfg.report.show == "all" or it.is_fresh
+        items.append(it)
 
     use_ai = cfg.ai.enabled and evaluator is not None
     if use_ai:
@@ -87,9 +95,39 @@ def _sort_key(it: EvaluatedJob) -> tuple:
     return (-it.evaluation.final_score, -it.evaluation.rule_score, it.record.job.posted_at or "")
 
 
+def translate_items(store: Storage, cfg: Config, items: list[EvaluatedJob], translator, now: datetime
+                    ) -> dict[str, tuple[str, str]]:
+    """Russian title + summary for the jobs the report lists prominently (translate.scope),
+    best first; cached translations are reused without an API call."""
+    from .translate import cache_key  # local import: keeps httpx-free imports for rescoring tests
+
+    scope = [it for it in items if it.in_scope and not it.evaluation.excluded]
+    if cfg.translate.scope == "passed":
+        scope = [it for it in scope if it.evaluation.passed]
+    scope.sort(key=_sort_key)
+    out: dict[str, tuple[str, str]] = {}
+    for it in scope:
+        job = it.record.job
+        key = cache_key(job, cfg.translate)
+        cached = store.get_translation(job.job_id, key)
+        if cached:
+            out[job.job_id] = cached
+            if translator is not None:
+                translator.cached += 1
+            continue
+        if translator is None:
+            continue
+        result = translator.translate(job)
+        if result is not None:
+            store.save_translation(job.job_id, key, result.title_ru, result.summary_ru, cfg.translate.model, now)
+            out[job.job_id] = (result.title_ru, result.summary_ru)
+    return out
+
+
 def build_context(store: Storage, cfg: Config, run_id: int, items: list[EvaluatedJob], now_utc: datetime,
                   now_local: datetime, abort_reason: str | None, warnings: list[str],
-                  ai_summary: str, details_summary: str | None) -> ReportContext:
+                  ai_summary: str, details_summary: str | None,
+                  translations: dict[str, tuple[str, str]] | None = None) -> ReportContext:
     searches = store.search_runs(run_id)
     ctx = ReportContext(
         run_id=run_id,
@@ -101,7 +139,8 @@ def build_context(store: Storage, cfg: Config, run_id: int, items: list[Evaluate
         searches_ok=sum(1 for s in searches if s.status == "ok"),
         search_errors=sum(1 for s in searches if s.status == "error"),
         unique_jobs=len(items),
-        new_jobs=sum(1 for it in items if it.is_new),
+        new_jobs=sum(1 for it in items if it.is_fresh),
+        reposted_jobs=sum(1 for it in items if it.is_new and it.repost_of),
         abort_reason=abort_reason,
         warnings=list(warnings),
         ai_summary=ai_summary,
@@ -112,7 +151,9 @@ def build_context(store: Storage, cfg: Config, run_id: int, items: list[Evaluate
 
     def item(it: EvaluatedJob) -> dict:
         names = [name for _, name in store.searches_for_job(it.record.job.job_id)]
-        return build_item(it.record.job, it.evaluation, it.is_new, names, now_utc, cfg.scoring)
+        original = store.get_job(it.repost_of) if it.repost_of else None
+        return build_item(it.record.job, it.evaluation, it.is_fresh, names, now_utc, cfg.scoring,
+                          (translations or {}).get(it.record.job.job_id), original)
 
     scope = sorted((it for it in items if it.in_scope), key=_sort_key)
     passed = [it for it in scope if it.evaluation.passed]
@@ -122,4 +163,5 @@ def build_context(store: Storage, cfg: Config, run_id: int, items: list[Evaluate
         ctx.below = [item(it) for it in scope if not it.evaluation.passed and not it.evaluation.excluded]
     if cfg.report.show_excluded:
         ctx.excluded = [item(it) for it in scope if it.evaluation.excluded]
+    ctx.reposts = [item(it) for it in sorted(items, key=_sort_key) if it.is_new and it.repost_of and not it.in_scope]
     return ctx

@@ -12,10 +12,12 @@ from . import __version__
 from .ai import AIEvaluator
 from .browser import BrowserLaunchError, open_browser
 from .config import Config, ConfigError, Secrets, load_config, load_secrets
-from .pipeline import build_context, evaluate_run
+from .inbox import process_inbox
+from .pipeline import build_context, evaluate_run, translate_items
 from .report import write_report
 from .scraper import PassAborted, PassResult, ensure_logged_in, run_pass, short_error
 from .storage import Storage
+from .translate import Translator
 
 log = logging.getLogger("upwork_scout")
 
@@ -81,10 +83,17 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     p.add_argument("--load-more", type=int, metavar="N", help="сколько раз нажимать «Load More Jobs» в каждом поиске")
     p.add_argument("--rescore", action="store_true",
                    help="без браузера: пересчитать оценки последнего запуска по текущему config.yaml и создать новый отчёт")
+    p.add_argument("--inbox", action="store_true",
+                   help="без браузера: разобрать страницы, сохранённые вручную в папку inbox/ (Ctrl+S в Chrome)")
+    p.add_argument("--browser", action="store_true",
+                   help="открыть Upwork в Chrome и пройти сохранённые поиски (если в config.yaml source: inbox)")
+    p.add_argument("--no-translate", action="store_true", help="не переводить заголовки и описания на русский")
     p.add_argument("--login-only", action="store_true",
                    help="только открыть Upwork в профиле скрипта и дождаться входа (без сбора)")
     p.add_argument("--version", action="version", version=f"upwork-scout {__version__}")
     args = p.parse_args(argv)
+    if args.inbox and args.browser:
+        p.error("--inbox и --browser нельзя указывать вместе")
     if args.load_more is not None and not 0 <= args.load_more <= 50:
         p.error("--load-more: ожидается число от 0 до 50")
     return args
@@ -99,6 +108,12 @@ def apply_overrides(cfg: Config, args: argparse.Namespace) -> None:
         cfg.collection.details.mode = "off"
     if args.load_more is not None:
         cfg.collection.load_more_clicks = args.load_more
+    if args.inbox:
+        cfg.collection.source = "inbox"
+    if args.browser:
+        cfg.collection.source = "browser"
+    if args.no_translate:
+        cfg.translate.enabled = False
 
 
 def _finish(cfg: Config, secrets: Secrets, store: Storage, run_id: int, run_started: datetime,
@@ -111,15 +126,28 @@ def _finish(cfg: Config, secrets: Secrets, store: Storage, run_id: int, run_star
         ai_summary = evaluator.summary()
     finally:
         evaluator.close()
+    translator = None
+    try:  # optional stage: any failure falls back to the English originals, the report is still written
+        translator = Translator(cfg.translate, secrets)
+        translations = translate_items(store, cfg, items, translator, run_started)
+        translate_summary = translator.summary()
+    except Exception as exc:
+        log.warning("Перевод не выполнен: %s", short_error(exc), exc_info=True)
+        translations = {}
+        translate_summary = f"Перевод на русский не выполнен: {type(exc).__name__}; показаны оригиналы."
+    finally:
+        if translator is not None:
+            translator.close()
     ctx = build_context(store, cfg, run_id, items, run_started, datetime.now().astimezone(),
-                        reason, warnings, ai_summary, details_summary)
+                        reason, warnings, f"{ai_summary} {translate_summary}", details_summary, translations)
     path = write_report(ctx, cfg.path(cfg.report.output_dir))
     if update_run:
         store.finish_run(run_id, datetime.now(timezone.utc), status, reason, ctx.searches_found, str(path))
     _notify("")
     _notify(f"Поисков обработано: {ctx.searches_ok} из {ctx.searches_found}; уникальных вакансий: {ctx.unique_jobs}; "
-            f"новых: {ctx.new_jobs}; прошли фильтр: {ctx.passed_in_scope}; ошибок поисков: {ctx.search_errors}.")
+            f"новых: {ctx.new_jobs}; повторов: {ctx.reposted_jobs}; прошли фильтр: {ctx.passed_in_scope}; ошибок поисков: {ctx.search_errors}.")
     _notify(ai_summary)
+    _notify(translate_summary)
     if reason:
         _notify(f"Внимание: {reason}")
     _notify(f"Отчёт: {path}")
@@ -151,6 +179,38 @@ def run(cfg: Config, secrets: Secrets, store: Storage) -> int:
     if failure:
         return EXIT_FAILED
     return EXIT_ABORTED if abort else EXIT_OK
+
+
+def run_inbox(cfg: Config, secrets: Secrets, store: Storage) -> int:
+    """Parse manually saved pages from the inbox folder and build the report (no browser)."""
+    folder = cfg.path(cfg.inbox.folder)
+    folder.mkdir(parents=True, exist_ok=True)
+    from .inbox import list_inbox
+
+    if not list_inbox(folder):
+        _notify(f"Папка {folder} пуста. Откройте нужные поиски Upwork в обычном Chrome, нажмите Ctrl+S, "
+                "выберите «Веб-страница, один файл» (.mhtml) и сохраните в эту папку. Затем запустите "
+                "снова: .\\run.bat --inbox")
+        return EXIT_FAILED
+    started = datetime.now(timezone.utc)
+    run_id = store.start_run(started)
+    _notify(f"Разбор сохранённых страниц из {folder}")
+    try:
+        result = process_inbox(cfg, store, run_id, started, _notify)
+    except Exception as exc:
+        log.exception("Ошибка разбора папки inbox")
+        reason = f"Ошибка разбора папки inbox: {short_error(exc)}. Подробности — в {cfg.logging.file}."
+        _finish(cfg, secrets, store, run_id, started, "failed", reason, [], None)
+        return EXIT_FAILED
+    warnings = [f"Пропущено файлов: {len(result.skipped)} — " + "; ".join(result.skipped)] if result.skipped else []
+    warnings += result.warnings
+    if result.processed == 0:
+        reason = ("Ни один файл из папки inbox не удалось разобрать — вакансии не добавлены. "
+                  "Причины перечислены выше; сохраните страницы заново (Ctrl+S → «Веб-страница, один файл»).")
+        _finish(cfg, secrets, store, run_id, started, "failed", reason, warnings, result.summary())
+        return EXIT_FAILED
+    _finish(cfg, secrets, store, run_id, started, "ok", None, warnings, result.summary())
+    return EXIT_OK
 
 
 def rescore(cfg: Config, secrets: Secrets, store: Storage) -> int:
@@ -205,6 +265,10 @@ def main(argv: list[str] | None = None) -> int:
         return login_only(cfg)
     store = Storage(cfg.path(cfg.storage.db_path))
     try:
-        return rescore(cfg, secrets, store) if args.rescore else run(cfg, secrets, store)
+        if args.rescore:
+            return rescore(cfg, secrets, store)
+        if cfg.collection.source == "inbox":
+            return run_inbox(cfg, secrets, store)
+        return run(cfg, secrets, store)
     finally:
         store.close()
