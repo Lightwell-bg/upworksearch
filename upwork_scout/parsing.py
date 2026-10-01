@@ -44,7 +44,7 @@ T_DURATION = ("duration", "duration-label", "est-time", "engagement")
 T_POSTED = ("posted-on", "job-pubilshed-date", "job-published-date", "posted-date", "postedon")
 T_PROPOSALS = ("proposals", "proposals-tier", "proposals-count")
 T_PAYMENT = ("payment-verified", "payment-verification-status", "payment-unverified", "payment-status")
-T_RATING = ("total-feedback", "client-feedback", "rating", "buyer-rating", "client-rating", "feedback")
+T_RATING = ("total-feedback", "client-feedback", "rating-minimal", "rating", "buyer-rating", "client-rating", "feedback")
 T_SPEND = ("total-spent", "client-spendings", "client-spend", "client-total-spent")
 T_COUNTRY = ("client-country", "client-location", "location")
 
@@ -60,7 +60,12 @@ BUDGET_RE = re.compile(r"(?:Est\.?\s*budget|Budget)\s*:?\s*" + _MONEY, re.I)
 FIXED_MONEY_RE = re.compile(r"\bFixed[\s-]*price\b[^$\n]{0,30}\n?\s*" + _MONEY, re.I)
 MONEY_FIXED_RE = re.compile(_MONEY + r"\s*Fixed[\s-]*price\b", re.I)
 FIXED_WORD_RE = re.compile(r"\bFixed[\s-]*price\b|\bFixed\b", re.I)
-EXPERIENCE_RE = re.compile(r"\b(Entry[\s-]*level|Intermediate|Expert)\b", re.I)
+# Not \b: adjacent <span>s glue together as "Fixed-price: $10IntermediateEst. Time". The word may
+# be followed by a capital (next span) but not by a lowercase letter ("experts", "intermediately").
+EXPERIENCE_RE = re.compile(
+    r"((?<![A-Za-z])(?:Entry[\s-]*level|Intermediate|Expert)|(?-i:Entry[\s-]*level|Intermediate|Expert))(?!(?-i:[a-z]))",
+    re.I,
+)
 DURATION_RE = re.compile(
     r"((?:Less than (?:1|one|a) (?:week|month)|\d+ to \d+ months|More than 6 months|Hours to be determined)"
     r"(?:\s*,\s*(?:Less than 30 hrs/week|30\+ hrs/week|More than 30 hrs/week|Hours to be determined))?)",
@@ -112,6 +117,8 @@ class _Index:
     """Descendants of ``root`` indexed by test-attribute tokens; ``skip`` subtrees excluded."""
 
     def __init__(self, root: Tag, skip: Sequence[Tag] = ()):
+        self.root = root
+        self.skip = list(skip)
         self._by_token: dict[str, list[Tag]] = {}
         skip_ids = {id(s) for s in skip}
 
@@ -303,6 +310,19 @@ def _spend(idx: _Index, meta: str) -> tuple[float | None, str | None]:
     return None, None
 
 
+_NOT_A_COUNTRY_RE = re.compile(
+    r"^\s*location\b|verif|\breviews?\b|\bspent\b|\bhires?\b|\bhired\b|\bmember since\b|\bphone\b|\bpayment\b",
+    re.I,
+)
+
+
+def _country_ok(value: str) -> bool:
+    return bool(
+        value and len(value) <= 60 and not re.search(r"[\d$]", value)
+        and value.lower() not in _NOT_A_COUNTRY and not _NOT_A_COUNTRY_RE.search(value)
+    )
+
+
 def _country(idx: _Index) -> str | None:
     for el in idx.all(T_COUNTRY):
         # <strong>Australia</strong><span>Sydney 7:15 PM</span>: the emphasised part first.
@@ -311,6 +331,20 @@ def _country(idx: _Index) -> str | None:
             value = re.sub(r"^\s*Location\s*:?\s*", "", line, flags=re.I).strip()
             if value and len(value) <= 60 and not re.search(r"[\d$]", value) and value.lower() not in _NOT_A_COUNTRY:
                 return value
+    # Fallback for newer tiles without a country tag:
+    # <div>Payment verified</div>[<div data-test="rating-minimal">5.0</div>]<div><icon/><span>Country</span></div>
+    anchors = list(idx.all(("rating-minimal",)))
+    if not anchors:
+        for pay in idx.root.find_all(string=PAYMENT_RE):
+            wrapper = pay.parent.parent if pay.parent is not None else None
+            if wrapper is not None and not _inside_any(wrapper, idx.skip):
+                anchors.append(wrapper)
+                break
+    for anchor in anchors:
+        sibling = anchor.find_next_sibling()
+        value = inline_text(sibling) if sibling is not None else ""
+        if _country_ok(value):
+            return value
     return None
 
 
@@ -435,6 +469,19 @@ def _title_element(card: Tag, job_id: str) -> Tag | None:
     return (in_heading or sorted(anchors, key=lambda a: -len(inline_text(a))))[0]
 
 
+def active_saved_search_name(html: str) -> str | None:
+    """Name of the checked saved-search chip (chip group outside job tiles); None if none or "All"."""
+    soup = soup_of(html)
+    for group in soup.find_all(attrs={"data-test": "chip-group"}):
+        if group.find_parent(attrs={"data-test": "job-tile"}) is not None:
+            continue
+        for chip in group.find_all(attrs={"data-test": "chip", "aria-checked": "true"}):
+            name = _clean(inline_text(chip))
+            if name and name.casefold() != "all":
+                return name
+    return None
+
+
 def parse_search_page(html: str, now: datetime | None = None) -> list[Job]:
     """All job cards on a search/feed page, in page order, one per job ID."""
     now = now or datetime.now(timezone.utc)
@@ -455,6 +502,23 @@ def parse_search_page(html: str, now: datetime | None = None) -> list[Job]:
         if jid and jid not in anchors and not _link_job_ids(tile):
             anchors[jid] = tile
             cards.append((jid, tile, tile.find(["h2", "h3", "h4"])))
+
+    # Newer markup: <div data-test="job-tile"> with an impression tracker carrying the opening
+    # uid; the title is a plain <h3 data-test="job-title"> and there is no job link at all.
+    seen = {jid for jid, _, _ in cards}
+    tiles = [t for t in soup.find_all(attrs={"data-test": "job-tile"})]
+    for tracker in soup.find_all(attrs={"data-ev-opening_uid": True}):
+        tile = tracker.find_parent(attrs={"data-test": "job-tile"})
+        if tile is not None and not any(tile is t for t in tiles):
+            tiles.append(tile)
+    for tile in tiles:
+        tracker = tile if tile.get("data-ev-opening_uid") else tile.find(attrs={"data-ev-opening_uid": True})
+        jid = job_id_from_uid(tracker.get("data-ev-opening_uid")) if tracker is not None else None
+        if not jid or jid in seen or _link_job_ids(tile):  # a linked tile is already a card
+            continue
+        seen.add(jid)
+        title_el = tile.find(attrs={"data-test": "job-title"}) or tile.find(["h2", "h3", "h4"])
+        cards.append((jid, tile, title_el))
 
     jobs: list[Job] = []
     for jid, card, title_el in cards:

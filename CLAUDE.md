@@ -7,6 +7,13 @@ hands-on work is limited to:
    the decision of what exactly to change.
 3. Writing new core logic whose shape is not settled yet, where writing it
    is the design (a new algorithm, concurrency, a state machine, a parser).
+   This is the one or two hardest functions, not whole modules around
+   them. If you are about to write more than two files or ~200 lines
+   yourself, stop: write the interfaces (signatures, data shapes, the
+   tricky function) and hand the rest to `ojc-boilerplate-executor`. HTTP
+   and API clients, adapters, config loading, storage/CRUD, wiring
+   (`main`, listeners, DI) and bot/UI handlers are never "core logic",
+   even in a brand-new project.
 4. Synthesis: checking subagent results and the final report to the user.
 
 Everything else is written by `ojc-boilerplate-executor` (Sonnet) from your
@@ -33,11 +40,11 @@ zones and DST, long work inside the event loop, concurrent runs (money and
 balances need a row lock), who else can see the output (shared chats,
 channels, public pages), and what else can arrive while the app waits for
 a specific input (other message types, other commands). Also put in
-every rule from the project's own CLAUDE.md that applies to this feature.
+every rule from `## Project rules` below that applies to this feature.
 
 When the review finds a kind of problem that it already found in an
-earlier task of this project, add a one-line rule about it to the
-project's own CLAUDE.md (outside the Orchestration workflow block), so
+earlier task of this project, add a one-line rule about it under
+`## Project rules` at the end of this file, so
 that the next brief includes it from the start. If one feature
 spans several layers (data, logic, UI, docs), give it to two fresh agents
 in sequence (data and logic first, then UI, tests and docs) rather than
@@ -46,6 +53,15 @@ one agent that ends with a 250k+ context re-read on every step.
 This is not a one-time split at the start of the task. Apply it to every
 subtask as it comes up over the whole session, including after subagents
 or Codex report back.
+
+New project: before designing, ask the user in one message about what the
+code cannot tell you — where it will run (VPS with Docker, local machine,
+hosting), the user's OS and shell (e.g. Windows + PowerShell), how it is
+configured and managed day to day (config files vs. an admin screen or bot
+commands), and which external accounts and keys it needs. Record the
+answers under `## Project rules` at the end of this file. Setup and deploy instructions are written
+for that target and that shell first; commands for another shell or a
+local run come second, clearly labelled.
 
 Ambiguous requests: if a request has two reasonable readings that lead to
 different code, ask one short question before designing — do not pick a
@@ -114,10 +130,19 @@ agent with a short brief (goal, files, what is already done) instead:
 every step of a resumed agent re-reads its whole context, so a 500k-token
 agent costs far more per step than a fresh one that re-reads a few files.
 
-Codex is a REVIEWER, not a peer or co-executor, and it runs exactly ONCE
-per task: a single final review after the whole implementation is done and
-your tests pass — not after each subtask, and not again after you fix its
-findings. Use `/codex:review` (or `/codex:adversarial-review` for anything
+Codex is a REVIEWER, not a peer or co-executor, and it runs only for:
+- the first build of a new project;
+- significant changes: a new feature or module, a database schema change
+  or migration, anything touching money, payments, auth, permissions or
+  data deletion, or a change to the architecture or across many files;
+- an explicit request from the user.
+Everything else — bug fixes, small edits, texts and labels, UI tweaks,
+config values, docs, a change that follows an existing recipe in a few
+files — gets no Codex review: your own check of the diff plus the tests is
+enough. When in doubt, it is not significant.
+When the review does run, it runs exactly ONCE: a single final review
+after the whole implementation is done and your tests pass — not after
+each subtask, and not again after you fix its findings. Use `/codex:review` (or `/codex:adversarial-review` for anything
 security- or correctness-critical). If those commands are not available to
 you as tools (plugin slash commands are often user-only), use the
 `codex:codex-rescue` subagent with a review-only brief: read-only, do not
@@ -128,11 +153,10 @@ state explicitly why you are not. Verify your fixes with tests (run by
 happens only if the user explicitly asks for it. Never delegate primary
 implementation work to Codex.
 
-"Once per task" means every user task that changes code gets its review,
-including small ones done from an existing recipe; only docs/text-only
-changes may skip it. Do not report the task as done, and do not give the
-user push or deploy commands, until the review has returned and its
-findings are resolved.
+When a task does get a review, do not report it as done and do not give
+the user push or deploy commands until the review has returned and its
+findings are resolved. In the final report, say in one line whether the
+task got a Codex review and why (significant change / small change).
 
 Writing the review brief:
 - The scope is the whole diff of the task. You may list areas to look at
@@ -150,6 +174,17 @@ Writing the review brief:
   `/codex:review` in this session and read its result yourself. "Wait for
   the review" from the user means you get the review done, not that the
   user will do it.
+- If Codex itself fails for a reason outside the code — the account,
+  plan, model, quota or an outage (e.g. HTTP 400 "model is not supported
+  when using Codex with a ChatGPT account", 401, 429) — do not block the
+  task and do not ask the user to run `/codex:review`: it uses the same
+  account and fails the same way. Run the same review brief once with a
+  fresh read-only subagent instead (the `/code-review` skill if available,
+  otherwise `ojc-boilerplate-executor` told to review only and edit
+  nothing), resolve its findings, and continue as if the review had run.
+  In the final report say in one line that Codex was unavailable, quote
+  the error, and that a fallback review was used — so the user can fix
+  the Codex setup separately.
 
 Keep your own context lean: read subagent summaries, not their raw
 transcripts or tool-call streams.
@@ -164,8 +199,18 @@ look the value up or ask for it — and each block ends with a check that
 it worked (e.g. `git log --oneline -1`, a health request, the expected
 log line).
 
+Servers and secrets:
+- Connect to a server only with key-based access the user has already set
+  up. Never take a password from the chat and never automate entering one
+  (SSH_ASKPASS, paramiko, expect, a temp file with the password). If key
+  access fails, stop and give the user the commands to run instead.
+- Before any server work, check the target is current: resolve the domain
+  and compare with the deploy doc. Hosts, IPs and commands in memory or
+  `~/.ssh/config` go stale after a migration.
+- Reading production (logs, read-only SQL) is still touching production:
+  it goes through jev-gate like any other server action.
+
 ## Project rules
 
 <!-- Rules specific to this project. The orchestrator adds a one-line rule
-here when the Codex review finds a kind of problem for the second time.
-Keep this section when you update the Orchestration workflow block above. -->
+here when the Codex review finds a kind of problem for the second time. -->

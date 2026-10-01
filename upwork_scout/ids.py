@@ -23,7 +23,7 @@ _JOB_HREF_RE = re.compile(
 _BARE_RE = re.compile(rf"^~?({_CIPHER})$", re.IGNORECASE)
 _CANON_RE = re.compile(rf"^{_CIPHER}$")
 _UID_RE = re.compile(r"^\d{15,25}$")
-_SEARCH_PATH_RE = re.compile(r"^/nx/find-work/(\d{1,20})/?$")
+_SEARCH_PATH_RE = re.compile(r"^/nx/(?:s/)?find-work/(\d{1,20})/?$")
 
 
 def normalize_job_id(value: str | None) -> str | None:
@@ -80,4 +80,5 @@ def is_upwork_url(url: str) -> bool:
 
 
 def is_find_work_url(url: str) -> bool:
-    return is_upwork_url(url) and urlparse(url).path.startswith("/nx/find-work")
+    path = urlparse(url).path
+    return is_upwork_url(url) and (path.startswith("/nx/find-work") or path.startswith("/nx/s/find-work"))

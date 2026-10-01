@@ -264,3 +264,11 @@ class TestProcessInboxUnknownJobPage:
         assert result.job_pages == 1
         searches = store.searches_for_job("01ffffffffffffffff")
         assert searches == [(JOB_PAGES_SEARCH.search_id, JOB_PAGES_SEARCH.name)]
+
+
+def test_identify_search_name_from_active_chip():
+    from upwork_scout.inbox import identify_search
+
+    page = SavedPage(Path("x.html"), "https://www.upwork.com/nx/s/find-work/9860550", fixture_html("search_feed_ngm_tile.html"))
+    search = identify_search(page)
+    assert (search.search_id, search.name) == ("9860550", "telegram bot")

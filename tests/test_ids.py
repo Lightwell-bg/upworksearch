@@ -107,3 +107,8 @@ class TestIsFindWorkUrl:
 
     def test_foreign_host(self):
         assert is_find_work_url("https://evil.example.com/nx/find-work/") is False
+
+
+def test_parse_search_id_new_s_path():
+    assert parse_search_id("https://www.upwork.com/nx/s/find-work/9860554") == "9860554"
+    assert parse_search_id("/nx/s/find-work/9860554/") == "9860554"

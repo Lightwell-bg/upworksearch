@@ -385,3 +385,34 @@ class TestCardExtractionIsolatesFailures:
         assert "01f4a3b2c1d0e9f8a7" in ids
         assert "01b1c2d3e4f5a6b7c8" in ids
         assert len(jobs) == 2
+
+
+# ------------------------------------------------------------------------------------------
+# search_feed_ngm_tile.html: new tiles (no job links, opening uid on an impression tracker)
+# ------------------------------------------------------------------------------------------
+class TestNgmTileFeed:
+    def test_two_jobs_with_ids_and_titles(self):
+        jobs = parse_search_page(fixture_html("search_feed_ngm_tile.html"), NOW)
+        assert [j.job_id for j in jobs] == ["022105638491020604229", "022105638491020604230"]
+        assert jobs[0].title == "WordPress Developer Needed to Fix Mobile Menu Issue"
+        assert jobs[1].title == "Python Scraper Developer"
+
+    def test_fields(self):
+        first, second = parse_search_page(fixture_html("search_feed_ngm_tile.html"), NOW)
+        assert (first.experience_level, first.client_rating, first.client_country) == ("Intermediate", 5.0, "Nigeria")
+        assert first.skills == ["WordPress", "Web Design"]
+        assert first.payment_verified is True
+        # Hourly rate glued to the level ("Hourly: $25-$47Expert") and no rating element.
+        assert (second.experience_level, second.client_rating, second.client_country) == ("Expert", None, "United States")
+        assert (second.hourly_min, second.hourly_max) == (25.0, 47.0)
+
+    def test_replacement_char_does_not_leak(self):
+        for job in parse_search_page(fixture_html("search_feed_ngm_tile.html"), NOW):
+            assert "�" not in repr([v for k, v in vars(job).items() if k != "description"])
+
+
+def test_active_saved_search_name_ignores_tile_chips():
+    html = fixture_html("search_feed_ngm_tile.html")
+    assert parsing.active_saved_search_name(html) == "telegram bot"
+    assert parsing.active_saved_search_name("<div data-test='chip-group'><div data-test='chip' aria-checked='true'>All</div></div>") is None
+    assert parsing.active_saved_search_name("<html></html>") is None

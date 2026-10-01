@@ -31,7 +31,7 @@ from .guards import PageState, detect_page_state
 from .htmltext import inline_text, soup_of
 from .ids import UPWORK_BASE, is_upwork_url, normalize_job_id, parse_search_id, search_url
 from .models import SavedSearch
-from .parsing import parse_job_details, parse_search_page
+from .parsing import active_saved_search_name, parse_job_details, parse_search_page
 from .storage import Storage
 
 log = logging.getLogger(__name__)
@@ -121,7 +121,7 @@ def identify_search(page: SavedPage) -> SavedSearch:
     search_id = parse_search_id(page.url) if page.url else None
     if search_id:
         names = {s.search_id: s.name for s in parse_saved_searches(page.html)}
-        name = names.get(search_id) or _page_title(page.html) or f"Поиск {search_id}"
+        name = names.get(search_id) or active_saved_search_name(page.html) or _page_title(page.html) or f"Поиск {search_id}"
         return SavedSearch(search_id, name, search_url(search_id))
     source = page.url or page.path.name
     pseudo_id = "page-" + hashlib.sha1(source.encode("utf-8")).hexdigest()[:10]
@@ -135,7 +135,7 @@ def _job_id_of_page(page: SavedPage) -> str | None:
     if not page.url or not is_upwork_url(page.url) or parse_search_id(page.url):
         return None
     path = urlparse(page.url).path
-    if "/nx/find-work/" in path and "/details/" not in path:
+    if ("/nx/find-work/" in path or "/nx/s/find-work/" in path) and "/details/" not in path:
         return None
     return normalize_job_id(page.url)
 
